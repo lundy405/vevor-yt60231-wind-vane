@@ -1,0 +1,50 @@
+name: Unpack bootstrap payload
+
+on:
+  push:
+    paths:
+      - "bootstrap/READY"
+  workflow_dispatch:
+
+jobs:
+  unpack:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Decode packs, extract files, remove bootstrap
+        run: |
+          set -euo pipefail
+          if [ ! -d bootstrap ]; then
+            echo "No bootstrap directory; nothing to unpack."
+            exit 0
+          fi
+          shopt -s nullglob
+          parts=(bootstrap/part-*.b64)
+          if [ ${#parts[@]} -eq 0 ]; then
+            echo "No bootstrap parts found."
+            exit 1
+          fi
+          echo "Found ${#parts[@]} parts"
+          cat $(printf '%s\n' "${parts[@]}" | sort) | base64 -d > /tmp/remaining.tar.gz
+          gzip -t /tmp/remaining.tar.gz
+          tar -tzf /tmp/remaining.tar.gz | wc -l
+          tar -xzf /tmp/remaining.tar.gz
+          rm -rf bootstrap
+          if [ -f .github/workflows/unpack-bootstrap.yml ]; then
+            rm -f .github/workflows/unpack-bootstrap.yml
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "Add remaining project files (STLs, images, variants, and source)"
+          git push
